@@ -1,0 +1,17 @@
+{{ define "telegram.alert" -}}
+{{ if eq .Status "firing" }}[FIRING]{{ else }}[RESOLVED]{{ end }} <code>{{ .Labels.alertname }}</code> | {{ .Labels.severity }}
+<b>{{ .Annotations.title }}</b>
+summary: {{ .Annotations.summary }}
+impact: {{ .Annotations.impact }}
+action: {{ .Annotations.description | reReplaceAll "`([^`]+)`" "<code>$1</code>" | safeHtml }}
+started: {{ .StartsAt | tz "Europe/Moscow" | date "2006-01-02 15:04:05" }} MSK
+{{ if eq .Status "resolved" }}duration: {{ (.EndsAt.Sub .StartsAt).Seconds | humanizeDuration }} (ended {{ .EndsAt | tz "Europe/Moscow" | date "2006-01-02 15:04:05" }} MSK)
+{{ end }}links: <a href="http://localhost:__GRAFANA_PORT__/d/devcopilot">Grafana</a> | <a href="{{ .GeneratorURL }}">Prometheus</a> | <a href="http://localhost:9093">Alertmanager</a>
+{{ end }}
+
+{{ define "telegram.message" -}}
+{{ range .Alerts.Firing }}{{ template "telegram.alert" . }}
+{{ end -}}
+{{ range .Alerts.Resolved }}{{ template "telegram.alert" . }}
+{{ end -}}
+{{ end }}

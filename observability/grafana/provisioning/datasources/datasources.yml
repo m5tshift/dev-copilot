@@ -1,0 +1,29 @@
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      timeInterval: 15s
+  - name: Loki
+    uid: loki
+    type: loki
+    url: http://loki:3100
+    jsonData:
+      # Every log record carries trace_id (structured metadata): link it to Phoenix.
+      # The project id is Phoenix's id of the "devcopilot" project; if links break
+      # after recreating the Phoenix volume, check the id in Phoenix's URL.
+      derivedFields:
+        - name: trace_id
+          matcherType: label
+          matcherRegex: trace_id
+          url: http://localhost:6006/projects/UHJvamVjdDoy/traces/${__value.raw}
+          urlDisplayLabel: Open trajectory in Phoenix
+  - name: Alertmanager
+    uid: alertmanager
+    type: alertmanager
+    url: http://alertmanager:9093
+    jsonData:
+      implementation: prometheus

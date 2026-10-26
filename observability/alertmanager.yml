@@ -1,0 +1,17 @@
+# Alerts are grouped and shown in the UI (http://localhost:9093) and in Grafana.
+# Delivery to Telegram is switched on by observability/alertmanager-entrypoint.sh when
+# the bot token file and the chat id exist (observability/secrets/README.md).
+# Without them alerts go nowhere but the UI.
+templates:
+  - /tmp/telegram.tmpl
+
+route:
+  receiver: devcopilot
+  group_by: [alertname]
+  group_wait: 10s
+  group_interval: 1m
+  repeat_interval: 4h
+
+receivers:
+  - name: devcopilot
+    # TELEGRAM_RECEIVER

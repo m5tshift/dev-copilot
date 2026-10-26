@@ -1,0 +1,59 @@
+[project]
+name = "devcopilot"
+version = "0.1.0"
+description = "Multi-agent dev copilot: LangGraph, MCP and local models (Ollama)"
+license = "MIT"
+license-files = ["LICENSE"]
+readme = "README.md"
+authors = [
+    { name = "m5tshift", email = "nibragimov.ms@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "jsonschema>=4.26.0",
+    "langchain-core>=1.6.12",
+    "langchain-mcp-adapters>=0.3.2",
+    "langchain-ollama>=1.1.0",
+    "langgraph>=1.2.16",
+    "langgraph-checkpoint-sqlite>=3.1.2",
+    "mcp>=1.30.0",
+    "openinference-instrumentation-langchain>=0.1.79",
+    "openinference-instrumentation-mcp>=2.0.13",
+    "opentelemetry-exporter-otlp-proto-http>=1.45.1",
+    "opentelemetry-sdk>=1.45.1",
+    "pydantic-settings>=2.16.1",
+    "pytest>=9.1.1",
+    "pyyaml>=6.0.3",
+    "rich>=15.0.0",
+    "typer>=0.27.3",
+]
+
+[project.scripts]
+devcopilot = "devcopilot.cli:app"
+
+[build-system]
+requires = ["uv_build>=0.13.1,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.17.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+extend-exclude = ["src/devcopilot/world/data", "workspace"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.lint.flake8-bugbear]
+# typer declares CLI options as argument defaults; they are evaluated once, by design.
+extend-immutable-calls = ["typer.Argument", "typer.Option"]
+
+[tool.ruff.lint.per-file-ignores]
+# PromQL queries read better on one line than wrapped.
+"observability/grafana/build_dashboard.py" = ["E501"]

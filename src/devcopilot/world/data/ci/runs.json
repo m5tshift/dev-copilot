@@ -1,0 +1,7 @@
+[
+  {"id": 101, "commit": "$c1", "branch": "main", "status": "passed", "trigger": "push by alice", "started_at": "2026-09-01T10:01:12+00:00", "duration_s": 41},
+  {"id": 102, "commit": "$c2", "branch": "main", "status": "passed", "trigger": "push by bob", "started_at": "2026-09-10T16:31:05+00:00", "duration_s": 44},
+  {"id": 103, "commit": "$c3", "branch": "main", "status": "passed", "trigger": "push by carol", "started_at": "2026-09-20T11:46:30+00:00", "duration_s": 43},
+  {"id": 104, "commit": "$c4", "branch": "main", "status": "failed", "trigger": "push by bob", "started_at": "2026-10-15T17:21:02+00:00", "duration_s": 39},
+  {"id": 105, "commit": "$c4", "branch": "main", "status": "failed", "trigger": "manual retry by alice (\"probably flaky\")", "started_at": "2026-10-16T11:32:40+00:00", "duration_s": 40}
+]

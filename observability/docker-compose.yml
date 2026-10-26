@@ -1,0 +1,93 @@
+# Observability stack for Dev Copilot (phase 3).
+#
+#   uv run devcopilot ... ──OTLP/HTTP :4318──> otel-collector ──> phoenix       :6006  traces
+#                                                            ├──> prometheus    :9090  metrics ──> alertmanager :9093
+#                                                            └──> loki          :3100  logs
+#                                                 grafana :3000 reads prometheus + loki
+#
+# Start:  docker compose -f observability/docker-compose.yml up -d
+# Then:   export DEVCOPILOT_OTEL_ENDPOINT=http://localhost:4318
+#
+# Images are pinned. Grafana 12.4.5 and Prometheus 2.50.1 are reused from another
+# local project to save disk space; newer versions work the same for this setup.
+
+name: devcopilot-observability
+
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.163.2
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4318:4318"   # OTLP/HTTP from the CLI and MCP servers
+    depends_on: [phoenix, loki]
+    mem_limit: 256m
+
+  phoenix:
+    image: arizephoenix/phoenix:version-20.24.0
+    environment:
+      PHOENIX_WORKING_DIR: /data
+    volumes:
+      - phoenix-data:/data
+    ports:
+      - "6006:6006"   # UI and OTLP/HTTP for traces
+    mem_limit: 768m
+
+  prometheus:
+    image: prom/prometheus:v2.50.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+      # Without external-url the Source link points at an unreachable container id.
+      - --web.external-url=http://localhost:${PROMETHEUS_PORT:-9090}
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"  # PROMETHEUS_PORT in observability/.env if 9090 is taken
+    mem_limit: 256m
+
+  alertmanager:
+    image: prom/alertmanager:v0.34.1
+    entrypoint: ["/bin/sh", "/etc/alertmanager/entrypoint.sh"]
+    environment:
+      # Chat id from observability/.env (git-ignored); the token from secrets/ below.
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      GRAFANA_PORT: ${GRAFANA_PORT:-3000}
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./telegram.tmpl:/etc/alertmanager/telegram.tmpl:ro
+      - ./alertmanager-entrypoint.sh:/etc/alertmanager/entrypoint.sh:ro
+      - ./secrets:/etc/alertmanager/secrets:ro
+    ports:
+      - "9093:9093"
+    mem_limit: 64m
+
+  loki:
+    image: grafana/loki:3.7.9
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    ports:
+      - "3100:3100"
+    mem_limit: 256m
+
+  grafana:
+    image: grafana/grafana:12.4.5
+    environment:
+      # Local learning setup: no login. Never do this on a shared machine.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/devcopilot.json
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    depends_on: [prometheus, loki]
+    mem_limit: 256m
+
+volumes:
+  phoenix-data:
+  prometheus-data:

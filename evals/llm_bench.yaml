@@ -1,0 +1,264 @@
+# Level-1 evals: the base LLM alone, no agent, no tools executed.
+# Four criteria of the assignment (TZ 2.2), every item checked deterministically:
+#   reasoning     - multi-step inference over a given context, one exact answer
+#   faithfulness  - answer only from the context; "UNKNOWN" when it is not there
+#   structured    - JSON that matches a schema and its constraints, from the prompt alone
+#   tools         - choosing the right tool and arguments (or no tool) from definitions
+#
+# expect: substrings that must ALL appear in the answer (case-insensitive);
+# any_of: at least one must appear; forbid: none may appear; regex: must match (re.search,
+# case-insensitive) - for numbers, where a substring "3" would also match a hash.
+
+contexts:
+  ci: |
+    CI runs on main, oldest first:
+    run 101: PASSED commit a1f3c20 at 2026-09-01 10:00
+    run 102: PASSED commit 7be2d11 at 2026-09-02 09:30
+    run 103: FAILED commit 9c04e5a at 2026-09-02 15:10 (test_expiry: TypeError)
+    run 104: FAILED commit 9c04e5a at 2026-09-02 16:00 (test_expiry: TypeError)
+    run 105: PASSED commit 3d8f7b2 at 2026-09-03 11:20
+    run 106: FAILED commit e51c9aa at 2026-09-04 08:45 (test_redirect: AssertionError)
+    run 107: FAILED commit 0b7e113 at 2026-09-04 12:05 (test_redirect: AssertionError)
+  issues: |
+    #1 [closed] Add QR codes for links (assignee: bob, labels: feature)
+    #2 [open] Expired links return 500 instead of 410 (assignee: alice, labels: bug,p1)
+       Comment by carol: started after the expiry refactor on Sep 2.
+    #3 [open] Short links sometimes redirect to the wrong URL (assignee: unassigned, labels: bug)
+    #4 [open] Docs: explain custom aliases (assignee: dave, labels: docs)
+    #5 [closed] Duplicate of #2 (assignee: alice, labels: bug)
+
+items:
+  # ------------------------------------------------------------ reasoning
+  - id: r-first-red
+    criterion: reasoning
+    context: ci
+    question: "Which commit first broke CI after the last green run before the current failures started? Answer with the commit hash."
+    expect: ["e51c9aa"]
+    forbid: ["9c04e5a"]
+  - id: r-fixed-by
+    criterion: reasoning
+    context: ci
+    question: "The TypeError in test_expiry: which commit fixed it? Answer with the commit hash."
+    expect: ["3d8f7b2"]
+  - id: r-count-failed
+    criterion: reasoning
+    context: ci
+    question: "How many distinct commits had failing runs? Answer with only a number."
+    regex: '^\W*(3|three)\b' 
+  - id: r-duration-red
+    criterion: reasoning
+    context: ci
+    question: "For how many hours (rounded down) was main red the first time, from the first failing run to the next green one? Answer with only a number."
+    regex: '^\W*20\b' 
+  - id: r-open-bugs
+    criterion: reasoning
+    context: issues
+    question: "How many open issues are labelled bug? Answer with only a number."
+    regex: '^\W*(2|two)\b' 
+  - id: r-unassigned-bug
+    criterion: reasoning
+    context: issues
+    question: "Which open bug has no owner? Answer with the issue number."
+    expect: ["#3"]
+  - id: r-link-cause
+    criterion: reasoning
+    context: issues
+    question: "Issue #2 started after a refactor on Sep 2. Using only the dates, which CI failure matches it in time: the TypeError or the AssertionError?"
+    context_extra: ci
+    expect: ["typeerror"]
+  - id: r-plan
+    criterion: reasoning
+    context: ci
+    question: "List, in order, the three steps you would take to find the root cause of the test_redirect failure, using only these tools: read_ci_log, git_show, read_file. Number the steps."
+    expect: ["read_ci_log", "git_show"]
+    any_of: ["0b7e113", "e51c9aa"]
+
+  # --------------------------------------------------------- faithfulness
+  - id: f-assignee
+    criterion: faithfulness
+    context: issues
+    question: "Who is assigned to #2? If the context does not say, answer UNKNOWN."
+    expect: ["alice"]
+    forbid: ["unknown"]
+  - id: f-not-there-priority
+    criterion: faithfulness
+    context: issues
+    question: "What is the deadline for #3? If the context does not say, answer UNKNOWN."
+    expect: ["unknown"]
+  - id: f-not-there-author
+    criterion: faithfulness
+    context: ci
+    question: "Who authored commit e51c9aa? If the context does not say, answer UNKNOWN."
+    expect: ["unknown"]
+  - id: f-not-there-cause
+    criterion: faithfulness
+    context: ci
+    question: "Which line of code causes the AssertionError in test_redirect? If the context does not say, answer UNKNOWN."
+    expect: ["unknown"]
+  - id: f-status
+    criterion: faithfulness
+    context: issues
+    question: "Is #5 open or closed? If the context does not say, answer UNKNOWN."
+    expect: ["closed"]
+  - id: f-duplicate
+    criterion: faithfulness
+    context: issues
+    question: "Which issue is #5 a duplicate of? If the context does not say, answer UNKNOWN."
+    expect: ["#2"]
+  - id: f-premise
+    criterion: faithfulness
+    context: issues
+    question: "Why did bob close #4? If the context does not say, answer UNKNOWN."
+    expect: ["unknown"]
+  - id: f-ci-time
+    criterion: faithfulness
+    context: ci
+    question: "At what time did run 105 start? If the context does not say, answer UNKNOWN."
+    expect: ["11:20"]
+
+  # ----------------------------------------------------------- structured
+  - id: s-issue
+    criterion: structured
+    context: issues
+    question: "Return issue #2 as JSON."
+    schema:
+      type: object
+      required: [id, status, assignee, labels]
+      properties:
+        id: {type: integer, const: 2}
+        status: {type: string, enum: [open, closed]}
+        assignee: {type: string, const: alice}
+        labels: {type: array, items: {type: string}, minItems: 2}
+  - id: s-runs-list
+    criterion: structured
+    context: ci
+    question: "Return the failing runs as JSON: an object with key runs, a list of {id, commit, test}."
+    schema:
+      type: object
+      required: [runs]
+      properties:
+        runs:
+          type: array
+          minItems: 4
+          maxItems: 4
+          items:
+            type: object
+            required: [id, commit, test]
+            properties:
+              id: {type: integer}
+              commit: {type: string, pattern: "^[0-9a-f]{7}$"}
+              test: {type: string, enum: [test_expiry, test_redirect]}
+  - id: s-triage
+    criterion: structured
+    context: issues
+    question: "Triage #3 as JSON with keys priority (one of p1, p2, p3), reason (one sentence, under 200 characters) and needs_owner (boolean)."
+    schema:
+      type: object
+      required: [priority, reason, needs_owner]
+      additionalProperties: false
+      properties:
+        priority: {type: string, enum: [p1, p2, p3]}
+        reason: {type: string, maxLength: 200}
+        needs_owner: {type: boolean, const: true}
+  - id: s-decision
+    criterion: structured
+    context: issues
+    question: "The user asks: \"close #4 please\". Return JSON {\"allow_changes\": boolean, \"reason\": string}: does the request explicitly ask to change something?"
+    schema:
+      type: object
+      required: [allow_changes, reason]
+      properties:
+        allow_changes: {type: boolean, const: true}
+        reason: {type: string}
+  - id: s-decision-no
+    criterion: structured
+    context: issues
+    question: "The user asks: \"what should we do with #4?\". Return JSON {\"allow_changes\": boolean, \"reason\": string}: does the request explicitly ask to change something?"
+    schema:
+      type: object
+      required: [allow_changes, reason]
+      properties:
+        allow_changes: {type: boolean, const: false}
+        reason: {type: string}
+  - id: s-empty-list
+    criterion: structured
+    context: issues
+    question: "Return JSON {\"issues\": [numbers]} with all open issues labelled feature. The list may be empty."
+    schema:
+      type: object
+      required: [issues]
+      properties:
+        issues: {type: array, maxItems: 0}
+  - id: s-russian
+    criterion: structured
+    context: issues
+    question: "Return JSON {\"summary\": string} where summary describes #2 in Russian, one sentence."
+    schema:
+      type: object
+      required: [summary]
+      properties:
+        summary: {type: string, pattern: "[а-яА-Я]{3,}"}
+  - id: s-no-prose
+    criterion: structured
+    context: ci
+    question: "Return JSON {\"green\": [run ids]} with all passing runs. Output only the JSON object, nothing else."
+    strict_json: true
+    schema:
+      type: object
+      required: [green]
+      properties:
+        green: {type: array, minItems: 3, maxItems: 3, items: {type: integer}}
+
+  # ---------------------------------------------------------------- tools
+  - id: t-log
+    criterion: tools
+    question: "Show me the log of CI run 107."
+    call: {name: get_ci_log, args: {run_id: 107}}
+  - id: t-issue
+    criterion: tools
+    question: "What is issue 3 about?"
+    call: {name: get_issue, args: {issue_id: 3}}
+  - id: t-search
+    criterion: tools
+    question: "Find issues about expired links."
+    call: {name: search_issues, args: {query: "expir"}}
+  - id: t-read
+    criterion: tools
+    question: "Open shortlink/expiry.py."
+    call: {name: read_file, args: {path: "shortlink/expiry.py"}}
+  - id: t-show
+    criterion: tools
+    question: "What changed in commit 0b7e113?"
+    call: {name: git_show, args: {commit: "0b7e113"}}
+  - id: t-none
+    criterion: tools
+    question: "Thanks, that's all for today!"
+    call: null
+  - id: t-update
+    criterion: tools
+    question: "Close issue 4."
+    call: {name: update_issue, args: {issue_id: 4, status: closed}}
+  - id: t-two
+    criterion: tools
+    question: "Get issues 2 and 3."
+    calls: [{name: get_issue, args: {issue_id: 2}}, {name: get_issue, args: {issue_id: 3}}]
+
+tools:
+  - name: get_ci_log
+    description: Get the last lines of a CI run log.
+    parameters: {type: object, required: [run_id], properties: {run_id: {type: integer, description: "CI run id, e.g. 104."}}}
+  - name: get_issue
+    description: Get the full issue with comments.
+    parameters: {type: object, required: [issue_id], properties: {issue_id: {type: integer, description: "Issue number without '#'."}}}
+  - name: search_issues
+    description: Find issues whose title or body contains the query.
+    parameters: {type: object, required: [query], properties: {query: {type: string}, status: {type: string, enum: [open, closed, all]}}}
+  - name: read_file
+    description: Read a file of the repository.
+    parameters: {type: object, required: [path], properties: {path: {type: string, description: "Path relative to the repo root."}}}
+  - name: git_show
+    description: Show a commit with its diff.
+    parameters: {type: object, required: [commit], properties: {commit: {type: string, description: "Commit hash."}}}
+  - name: update_issue
+    description: Change status, assignee or labels of an issue.
+    parameters: {type: object, required: [issue_id], properties: {issue_id: {type: integer}, status: {type: string, enum: [open, closed]}, assignee: {type: string}}}

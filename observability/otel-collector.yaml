@@ -1,0 +1,46 @@
+# One entry point for all telemetry; fans out by signal type.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch: {}
+  # Every CLI run is a new short-lived process that reports DELTA metrics (only its
+  # own increments). This processor sums them into cumulative series that Prometheus
+  # can rate() over. Runs merge into one series because they share resource attributes
+  # (no service.instance.id).
+  deltatocumulative:
+    max_stale: 24h
+  # The Python SDK adds a random service.instance.id per process. For metrics that
+  # would create a new series for every CLI run (cardinality explosion, no merging).
+  # Traces keep it: there it is useful to know which process emitted a span.
+  resource/drop-instance:
+    attributes:
+      - key: service.instance.id
+        action: delete
+
+exporters:
+  otlphttp/phoenix:
+    endpoint: http://phoenix:6006        # Phoenix accepts OTLP at /v1/traces
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp      # Loki 3 has native OTLP ingestion
+  prometheus:
+    endpoint: 0.0.0.0:8889               # scraped by Prometheus
+    metric_expiration: 24h               # keep series of idle runs visible
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/phoenix]
+    metrics:
+      receivers: [otlp]
+      processors: [resource/drop-instance, deltatocumulative, batch]
+      exporters: [prometheus]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/loki]

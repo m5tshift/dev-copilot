@@ -1,0 +1,72 @@
+[ci] run 105 | branch main | commit $c4
+[ci] python 3.12.12 | pip install -e .[test]
+Successfully installed shortlink-0.1.0 pytest-9.1.1
+[ci] $ python -m pytest -v
+============================= test session starts ==============================
+platform linux -- Python 3.12.12, pytest-9.1.1, pluggy-1.7.0
+rootdir: /builds/shortlink
+collected 15 items
+
+tests/test_codes.py::test_roundtrip[0] PASSED                            [  6%]
+tests/test_codes.py::test_roundtrip[1] PASSED                            [ 13%]
+tests/test_codes.py::test_roundtrip[61] PASSED                           [ 20%]
+tests/test_codes.py::test_roundtrip[62] PASSED                           [ 26%]
+tests/test_codes.py::test_roundtrip[3843] PASSED                         [ 33%]
+tests/test_codes.py::test_roundtrip[1000000000] PASSED                   [ 40%]
+tests/test_codes.py::test_negative_id_rejected PASSED                    [ 46%]
+tests/test_codes.py::test_invalid_character_rejected PASSED              [ 53%]
+tests/test_expiry.py::test_expires_at_adds_ttl PASSED                    [ 60%]
+tests/test_expiry.py::test_fresh_link_not_expired FAILED                 [ 66%]
+tests/test_expiry.py::test_old_link_expired FAILED                       [ 73%]
+tests/test_expiry.py::test_injected_clock PASSED                         [ 80%]
+tests/test_ratelimit.py::test_allows_up_to_limit_then_blocks PASSED      [ 86%]
+tests/test_ratelimit.py::test_window_resets PASSED                       [ 93%]
+tests/test_ratelimit.py::test_keys_are_independent PASSED                [100%]
+
+=================================== FAILURES ===================================
+_________________________ test_fresh_link_not_expired __________________________
+
+    def test_fresh_link_not_expired():
+>       assert not is_expired(datetime.now(timezone.utc), ttl_hours=1)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_expiry.py:12: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+created_at = datetime.datetime(2026, 10, 15, 17, 21, 39, 608225, tzinfo=datetime.timezone.utc)
+ttl_hours = 1, now = datetime.datetime(2026, 10, 15, 17, 21, 39, 608333)
+
+    def is_expired(created_at: datetime, ttl_hours: int, now: datetime | None = None) -> bool:
+        """Return True if the link has expired. `now` can be injected in tests."""
+        now = now or datetime.now()
+>       return now >= expires_at(created_at, ttl_hours)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: can't compare offset-naive and offset-aware datetimes
+
+shortlink/expiry.py:13: TypeError
+____________________________ test_old_link_expired _____________________________
+
+    def test_old_link_expired():
+        created = datetime.now(timezone.utc) - timedelta(hours=5)
+>       assert is_expired(created, ttl_hours=1)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_expiry.py:17: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+created_at = datetime.datetime(2026, 10, 15, 12, 21, 39, 626934, tzinfo=datetime.timezone.utc)
+ttl_hours = 1, now = datetime.datetime(2026, 10, 15, 17, 21, 39, 626937)
+
+    def is_expired(created_at: datetime, ttl_hours: int, now: datetime | None = None) -> bool:
+        """Return True if the link has expired. `now` can be injected in tests."""
+        now = now or datetime.now()
+>       return now >= expires_at(created_at, ttl_hours)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: can't compare offset-naive and offset-aware datetimes
+
+shortlink/expiry.py:13: TypeError
+=========================== short test summary info ============================
+FAILED tests/test_expiry.py::test_fresh_link_not_expired - TypeError: can't c...
+FAILED tests/test_expiry.py::test_old_link_expired - TypeError: can't compare...
+========================= 2 failed, 13 passed in 0.04s =========================
+[ci] status: failed (exit code 1)

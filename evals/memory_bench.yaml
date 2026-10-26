@@ -1,0 +1,53 @@
+# Retrieval quality of the episodic memory (memory.py), with the real embedding model.
+# Episodes are what earlier runs would have stored; each query lists the episodes a
+# good memory must return (relevant) - everything else returned is noise.
+#   Context Precision@k = relevant among returned / returned
+#   Context Recall@k    = relevant returned / all relevant
+# Queries are paraphrases and other languages on purpose: an exact-word search would
+# find the episode anyway, memory has to work when the user words it differently.
+
+episodes:
+  ci-typeerror: {q: "Why is CI red? test_expiry fails", a: "Run 103 fails with TypeError in shortlink/expiry.py:12 since commit 9c04e5a: expires_at compared as str with datetime."}
+  ci-redirect: {q: "What broke test_redirect?", a: "AssertionError in test_redirect since e51c9aa: the redirect handler drops the query string."}
+  issue-3-owner: {q: "Who owns issue #3?", a: "#3 (wrong redirect target) is unassigned; alice works on #2."}
+  issue-2-status: {q: "Status of the 500 on expired links", a: "#2 is open, assigned to alice, p1; caused by the TypeError in expiry.py."}
+  docs-alias: {q: "Where are custom aliases documented?", a: "Nowhere yet: #4 asks dave to document custom aliases."}
+  deploy: {q: "How do we deploy shortlink?", a: "Deploys run from main after green CI; there is no manual step."}
+  injection: {q: "Triage #6", a: "#6 contains instructions addressed to AI assistants asking to close all issues; flagged as suspicious, nothing done."}
+  qr: {q: "Do we support QR codes?", a: "Yes, #1 added QR codes for links; it is closed."}
+
+queries:
+  - {q: "почему падает CI на тесте expiry", relevant: [ci-typeerror]}
+  - {q: "expired links give HTTP 500, what is known?", relevant: [issue-2-status, ci-typeerror]}
+  - {q: "who is responsible for the redirect bug", relevant: [issue-3-owner]}
+  - {q: "redirect test assertion failure cause", relevant: [ci-redirect]}
+  - {q: "кто занимается задачей #2", relevant: [issue-2-status]}
+  - {q: "is there documentation for aliases", relevant: [docs-alias]}
+  - {q: "an issue told the bot to close everything", relevant: [injection]}
+  - {q: "release process", relevant: [deploy]}
+  - {q: "QR-коды есть?", relevant: [qr]}
+  - {q: "what is the weather tomorrow", relevant: []}
+
+# Staleness (memory_bench.degradation): the same question asked twice, a month apart, at
+# different repo HEADs, with opposite answers. The world changed in between, so a good
+# memory ranks the newer answer first and marks the older one as possibly outdated.
+# Issue numbers do not clash with the episodes above (#1-#6) or the generated distractors (#11+).
+stale:
+  - {q: "Is the Python version pinned in CI?", query: "есть ли в CI фиксированная версия Python?",
+     old: "#5 is open: bob is still pinning Python to 3.12 in the CI config.",
+     new: "#5 is closed: CI pins Python 3.12 since run 103."}
+  - {q: "Is main green?", query: "is CI on main passing now",
+     old: "No: run 105 failed again on main, test_fresh_link_not_expired; the retry did not help.",
+     new: "Yes: run 106 passed on main after the expiry fix in commit 7d1e0b2."}
+  - {q: "Who owns issue #8?", query: "кто взял задачу #8",
+     old: "#8 (base62 codes collide after a restart) is unassigned.",
+     new: "#8 is assigned to carol; her fix is in review."}
+  - {q: "Is test_window_resets flaky?", query: "does the rate limit window test fail randomly",
+     old: "Yes: test_window_resets sleeps one second and fails on slow runners; it is quarantined.",
+     new: "No longer: since commit 4f2a9c1 test_window_resets uses an injected clock and passed in every run since."}
+  - {q: "Is the SQLite store safe under concurrent writes?", query: "can two workers write links at the same time",
+     old: "No: #9 shows 'database is locked' errors in shortlink/store.py under load.",
+     new: "Yes: WAL mode is enabled in shortlink/store.py and #9 is closed."}
+  - {q: "Do we support link previews?", query: "можно ли посмотреть превью ссылки",
+     old: "No: #10 asks for link previews, nobody has started it.",
+     new: "Yes: #10 added a /preview endpoint; it is closed."}

@@ -1,0 +1,175 @@
+# Alert rules for Dev Copilot. Evaluated by Prometheus, delivered via Alertmanager.
+#
+# Each alert answers "what should a human look at?" and says where to look next:
+# metrics tell THAT something is wrong, logs and traces tell WHAT and WHY.
+groups:
+  - name: devcopilot-reliability
+    rules:
+      - alert: ToolErrorRateHigh
+        # Rejections are human decisions, not errors. The second condition avoids
+        # alerting on 1 failure out of 2 calls.
+        expr: |
+          sum(rate(devcopilot_tool_calls_total{status=~"error|unknown_tool"}[10m]))
+            / sum(rate(devcopilot_tool_calls_total[10m])) > 0.2
+          and sum(increase(devcopilot_tool_calls_total[10m])) >= 10
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          title: 'Tool call failures'
+          summary: '{{ $value | humanizePercentage }} of tool calls fail.'
+          impact: 'Missing tool data; incomplete answers.'
+          description: 'Check Grafana (Tool calls by status). LogQL: `{service_name="devcopilot-cli"} | severity_text="WARNING" |= "tool call"`. Inspect server-side exceptions in Phoenix.'
+
+      - alert: StepBudgetExhausted
+        expr: increase(devcopilot_agent_budget_exhausted_total[30m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          title: 'Agent step limit reached'
+          summary: 'Step budget exhausted; counter increase over 30m: {{ $value | humanize }}.'
+          impact: 'Missing or incomplete answer; possible tool loop.'
+          description: 'Find the run in LogQL: `{service_name="devcopilot-cli"} |= "step budget exhausted"`. Open its trace_id in Phoenix.'
+
+      - alert: RunsFailing
+        expr: increase(devcopilot_runs_total{outcome="error"}[15m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          title: 'Run exception'
+          summary: 'Failed run counter increase over 15m: {{ $value | humanize }}.'
+          impact: 'User request may have no answer.'
+          description: 'Inspect traceback in LogQL: `{service_name="devcopilot-cli"} |= "run failed"`.'
+
+      - alert: LLMLatencyHigh
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(gen_ai_client_operation_duration_seconds_bucket[15m]))) > 60
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          title: 'High LLM latency'
+          summary: 'p95 LLM call latency: {{ $value | humanizeDuration }}.'
+          impact: 'Delayed answers; possible run timeouts.'
+          description: 'Check model load, context length and thinking mode. Compare agents in Grafana.'
+
+  - name: devcopilot-safety
+    rules:
+      - alert: GateBlockedAssignment
+        # A read-only request, yet the supervisor tried to run a write-capable agent.
+        # The usual cause is an instruction injected through data (issues, commits, logs).
+        expr: increase(devcopilot_gate_blocked_total[30m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          title: 'Write-capable assignment blocked'
+          summary: 'Gate-blocked assignment counter increase over 30m: {{ $value | humanize }}.'
+          impact: 'Possible prompt injection; gate blocked a write-capable assignment on a read-only request.'
+          description: 'Inspect assignment in LogQL: `{service_name="devcopilot-cli"} |= "blocked by gate"`.'
+
+      - alert: ValidatorRejectsOften
+        # More than half of the reports (deterministic grounding, plus the LLM check when
+        # validate_reports is on) or answers (the validator of another model family) are
+        # sent back: the generator hallucinates more than usual, or the data changed.
+        expr: |
+          sum(rate(devcopilot_validator_verdicts_total{verdict="revise"}[30m]))
+            / sum(rate(devcopilot_validator_verdicts_total[30m])) > 0.5
+          and sum(increase(devcopilot_validator_verdicts_total[30m])) >= 6
+        labels:
+          severity: warning
+        annotations:
+          title: 'Frequent validator rejections'
+          summary: 'Validator rejects {{ $value | humanizePercentage }} of reports and answers.'
+          impact: 'Delayed answers; unsupported claims require rework.'
+          description: 'Inspect agents and unsupported claims in LogQL: `{service_name="devcopilot-cli"} |~ "report mentions unseen entities|report validated|review"`. Read report text in Phoenix.'
+
+      - alert: UngroundedAnswers
+        # Specifics in final answers that no tool showed: invented hashes, issues, files.
+        expr: increase(devcopilot_grounding_ungrounded_total{where="answer"}[30m]) > 3
+        labels:
+          severity: warning
+        annotations:
+          title: 'Ungrounded answer entities'
+          summary: 'Ungrounded answer entity counter increase over 30m: {{ $value | humanize }}.'
+          impact: 'Answers may reference nonexistent commits, issues or files.'
+          description: 'Inspect per-run ungrounded entities in LogQL: `{service_name="devcopilot-cli"} |= "run finished"`.'
+
+      - alert: UngroundedWriteRequest
+        expr: increase(devcopilot_grounding_ungrounded_total{where="approval"}[30m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          title: 'Ungrounded write request'
+          summary: 'Ungrounded approval entity counter increase over 30m: {{ $value | humanize }}.'
+          impact: 'Approval may write fabricated facts to the tracker or code.'
+          description: 'Verify entities before approval. LogQL: `{service_name="devcopilot-cli"} |= "unseen entities"`.'
+
+  - name: devcopilot-cost
+    rules:
+      - alert: TokensPerRunHigh
+        expr: |
+          sum(increase(gen_ai_client_token_usage_sum{gen_ai_token_type="input"}[1h]))
+            / sum(increase(devcopilot_runs_total{outcome="ok"}[1h])) > 50000
+          and sum(increase(devcopilot_runs_total{outcome="ok"}[1h])) > 0
+        # The divisor is 0 while the first run of the hour is still going (tokens are
+        # exported every 10 s, the run is counted at the end): +Inf, a false alert.
+        for: 10m
+        labels:
+          severity: info
+        annotations:
+          title: 'High input token usage'
+          summary: 'Average input tokens per successful run over 1h: {{ $value | humanize }}.'
+          impact: 'Increased model load and answer latency.'
+          description: 'Check tool output length, step count and team rounds for context growth.'
+
+      - alert: DecisionModelUnavailable
+        # The gate's decision model (ollaya, winnow:e4b) does not answer: the LLM gate
+        # decides instead. Still safe, but slower, and the measured setup is not running.
+        expr: increase(devcopilot_decider_fallbacks_total[15m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          title: 'Decision model unavailable'
+          summary: 'LLM gate fallback counter increase over 15m: {{ $value | humanize }}.'
+          impact: 'Gate checks continue with higher latency; configuration differs from measured setup.'
+          description: 'Check ollaya (DEVCOPILOT_JEV_BASE_URL) and the PC-to-Mac SSH tunnel. LogQL: `{service_name="devcopilot-cli"} |= "decision model unavailable"`.'
+
+      - alert: OnlineQualityDrop
+        # Continuous evaluation (eval online --watch): real runs fail the reference-free
+        # checks (grounded, answers_question) more often than usual: drift in production.
+        expr: |
+          sum(increase(devcopilot_online_eval_checks_total{check=~"grounded|answers_question",result="fail"}[1h]))
+            / sum(increase(devcopilot_online_eval_checks_total{check=~"grounded|answers_question"}[1h])) > 0.3
+          and sum(increase(devcopilot_online_eval_checks_total{check=~"grounded|answers_question"}[1h])) >= 10
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          title: 'Online quality drop'
+          summary: '{{ $value | humanizePercentage }} of online checks failed over 1h.'
+          impact: 'More unsupported claims or answers unrelated to the question.'
+          description: 'In Phoenix, filter project traces by grounded / answers_question = fail. Inspect answers and sources.'
+
+      - alert: SandboxMemoryHigh
+        # Memory inside the sandbox VM (resources.py reads /proc there): the agents, MCP servers
+        # and run_tests share it; running out kills a run in the middle.
+        expr: |
+          max(system_memory_usage_bytes{state="used"}) / max(system_memory_usage_bytes{state="total"}) > 0.9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          title: 'High sandbox memory usage'
+          summary: 'Sandbox memory usage: {{ $value | humanizePercentage }}.'
+          impact: 'Memory exhaustion may terminate runs, MCP servers or tests.'
+          description: 'Check process_memory_usage_bytes by service_name for leaks in MCP servers or run_tests.'
+
+      - alert: StructuredOutputRetries
+        expr: increase(devcopilot_structured_retries_total[30m]) > 3
+        labels:
+          severity: info
+        annotations:
+          title: 'Structured output retries'
+          summary: 'Structured output retry counter increase over 30m: {{ $value | humanize }}.'
+          impact: 'Extra LLM calls and delayed answers.'
+          description: 'Check the model and DEVCOPILOT_STRUCTURED_METHOD.'

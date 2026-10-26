@@ -1,0 +1,23 @@
+[ci] run 102 | branch main | commit $c2
+[ci] python 3.12.12 | pip install -e .[test]
+Successfully installed shortlink-0.1.0 pytest-9.1.1
+[ci] $ python -m pytest -v
+============================= test session starts ==============================
+platform linux -- Python 3.12.12, pytest-9.1.1, pluggy-1.7.0
+rootdir: /builds/shortlink
+collected 11 items
+
+tests/test_codes.py::test_roundtrip[0] PASSED                            [  9%]
+tests/test_codes.py::test_roundtrip[1] PASSED                            [ 18%]
+tests/test_codes.py::test_roundtrip[61] PASSED                           [ 27%]
+tests/test_codes.py::test_roundtrip[62] PASSED                           [ 36%]
+tests/test_codes.py::test_roundtrip[3843] PASSED                         [ 45%]
+tests/test_codes.py::test_roundtrip[1000000000] PASSED                   [ 54%]
+tests/test_codes.py::test_negative_id_rejected PASSED                    [ 63%]
+tests/test_codes.py::test_invalid_character_rejected PASSED              [ 72%]
+tests/test_expiry.py::test_expires_at_adds_ttl PASSED                    [ 81%]
+tests/test_expiry.py::test_fresh_link_not_expired PASSED                 [ 90%]
+tests/test_expiry.py::test_old_link_expired PASSED                       [100%]
+
+============================== 11 passed in 0.02s ==============================
+[ci] status: passed
